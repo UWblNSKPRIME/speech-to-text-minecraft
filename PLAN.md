@@ -9,7 +9,7 @@
 - 2 аудио-канала: микрофон (PTT F8) + WASAPI loopback (Discord, всегда включён).
 - Silero VAD на каждый канал. Конец предложения = VAD-тишина + пунктуация.
 - Протокол TCP 127.0.0.1:47832, JSON-lines: `{"t":"draft|final","speaker":"me"|"discord","text":...}`.
-- Fabric-мод (Loom 1.17, Java 25, Fabric Loader 0.19.5): HUD-оверлей черновика + авто-отправка в чат; guard: окно чата/инвентарь открыто → буфер обмена.
+- Fabric-мод (Loom 1.18.4, плагин `net.fabricmc.fabric-loom`, Gradle wrapper 9.7.1, Java 25, Fabric Loader 0.19.5, Fabric API 0.161.0+26.2; MC 26.x необфусцирован — маппинги не нужны): HUD-оверлей черновика + авто-отправка в чат; guard: окно чата/инвентарь открыто или нет мира → буфер обмена + короткое HUD-уведомление.
 - Деплой jar: `<minecraft-instance>/minecraft/mods` (инстанция уже Fabric).
 - Только CPU (без Vulkan/CUDA). README: раздел «В будущем: CUDA».
 - Английский не нужен (только ru). Диаризация: сейчас общий префикс `Discord:`, поле speaker заложено на будущее.
@@ -20,11 +20,11 @@
 
 ## Этапы
 - [x] 1. Движок: gigastt-core в проект, CLI `vocatalk --file x.wav`, проверка пунктуации и RTF
-- [x] 2. Два канала: cpal (микроф) + wasapi loopback + Silero VAD ×2 + поток partial/final в консоль, замер TTFP
-- [ ] 3. Fabric-мод 26.2: сокет, оверлей, авто-отправка, guard'ы; gradlew build → jar в mods
+- [x] 2. Два канала: cpal (микроф) + wasapi loopback + Silero VAD ×2 + поток partial/final в консоль, замер TTFP (коммит 4301b8c; ожидает live-смоук с речью от пользователя)
+- [x] 3. Fabric-мод 26.2: TCP-слушатель 127.0.0.1:47832 (JSON-lines), HUD-оверлей черновиков (me — белый, discord — зелёный, таймаут 10 с), авто-отправка final с guard'ами (чат/инвентарь/нет мира → буфер обмена + HUD-уведомление), обрезка до 250 символов; gradlew build → jar скопирован в mods — ожидает смоук в игре от пользователя
 - [ ] 4. Интеграция: мерж, эндпоинт (пауза VAD + пунктуация), PTT, тюнинг порогов
 - [ ] 5. README (**EN**): сборка, схема, хоткеи, «Future: CUDA»
-- [ ] Качество репо: LICENSE (MIT), .gitignore, README EN, cargo fmt/clippy без замечаний, метаданные в Cargo.toml (description/license/repository)
+- [x] Качество репо: LICENSE (MIT), .gitignore, README EN, cargo fmt/clippy без замечаний, метаданные в Cargo.toml (description/license/repository)
 
 ## Репозиторий и анонимность
 - Public repo: https://github.com/UWblNSKPRIME/speech-to-text-minecraft (ветка `main`).
@@ -35,3 +35,4 @@
 - (закрыто) `1.md` (research-заметки про GigaAM) — пользователь решил оставить локально, в репо не публиковать; файл добавлен в `.gitignore`.
 - (закрыто) Тестовый wav для этапа 1 — взят из репо gigastt (`golos_00` → `vocatalk/testdata/sample.wav`).
 - (закрыто) Поддержка live-диаризации — этап 2 закрыт без неё (`create_state(false)`, общий префикс `Discord:`); включать capability не потребовалось.
+- (закрыто) Маппинги для MC 26.2 — с 26.1 Mojang выпускает необфусцированный jar (маппингов нет вообще); yarn заморожен на 1.21.11. Loom-плагин для таких версий — `net.fabricmc.fabric-loom` (старый id `fabric-loom` — legacy-режим, требует mappings). Fabric API 26.2: `HudRenderCallback` удалён, вместо него `HudElementRegistry` + `HudElement.extractRenderState(GuiGraphicsExtractor, DeltaTracker)`.
