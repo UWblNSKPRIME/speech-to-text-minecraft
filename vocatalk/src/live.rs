@@ -18,7 +18,7 @@ use gigastt_core::vad::{SileroVad, VadConfig, VAD_MODEL_FILE};
 use wasapi::{DeviceEnumerator, Direction, SampleType, StreamMode, WaveFormat};
 
 use crate::audio::{downmix_to_mono, resample_to_engine, RawChunk};
-use crate::net::ModBridge;
+use crate::net::{ModBridge, SpeakerNames};
 use crate::ptt::{self, Ptt};
 
 /// Samples per engine call (~0.2 s at 16 kHz): batches callback-sized chunks
@@ -80,6 +80,7 @@ pub async fn run(
     threads: usize,
     input_device: Option<usize>,
     vad: VadConfig,
+    names: SpeakerNames,
 ) -> Result<()> {
     let vad_dir = model::default_vad_model_dir();
     eprintln!("models: {model_dir}");
@@ -111,7 +112,7 @@ pub async fn run(
         .with_vad(Some(silero), vad),
     );
 
-    let bridge = ModBridge::start();
+    let bridge = ModBridge::start(names);
     let ptt = ptt::start().context("push-to-talk is required for --live")?;
     let ptt_gate = ptt.gate().clone();
 

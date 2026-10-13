@@ -49,6 +49,14 @@ struct Cli {
     /// Trailing silence before the VAD ends an utterance, in milliseconds
     #[arg(long, default_value_t = 600)]
     vad_min_silence_ms: u32,
+
+    /// Chat display name for the microphone channel
+    #[arg(long, default_value = "Вэвси")]
+    name_me: String,
+
+    /// Chat display name for the system-audio (loopback) channel
+    #[arg(long, default_value = "Аури")]
+    name_discord: String,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -121,6 +129,10 @@ async fn main() -> Result<()> {
                 resolve_threads(&cli)?,
                 cli.input_device,
                 resolve_vad(&cli)?,
+                net::SpeakerNames {
+                    me: cli.name_me.clone(),
+                    discord: cli.name_discord.clone(),
+                },
             )
             .await
         }
@@ -277,5 +289,26 @@ mod tests {
             let err = resolve_vad(&cli).unwrap_err();
             assert!(err.to_string().contains("--vad-threshold"), "bad={bad}");
         }
+    }
+
+    #[test]
+    fn name_flags_have_documented_defaults() {
+        let cli = Cli::parse_from(["vocatalk", "--live"]);
+        assert_eq!(cli.name_me, "Вэвси");
+        assert_eq!(cli.name_discord, "Аури");
+    }
+
+    #[test]
+    fn name_flags_parse_custom_values() {
+        let cli = Cli::parse_from([
+            "vocatalk",
+            "--live",
+            "--name-me",
+            "Test",
+            "--name-discord",
+            "Bot",
+        ]);
+        assert_eq!(cli.name_me, "Test");
+        assert_eq!(cli.name_discord, "Bot");
     }
 }

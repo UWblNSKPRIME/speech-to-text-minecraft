@@ -113,13 +113,16 @@ Start the Minecraft instance with the [Fabric mod](../mod/) first, then run
 - The CLI connects to the mod at `127.0.0.1:47832` and streams every `draft`/`final` of both
   channels as JSON lines (protocol: see [`mod/README.md`](../mod/README.md)). The console
   output stays as-is — both sinks receive the same events.
+- Text sent to the mod is prefixed with the speaker's chat name: `--name-me` (default
+  `Вэвси`) for the microphone, `--name-discord` (default `Аури`) for the loopback channel.
+  Recognized slash commands are sent raw, so the mod's guard copies them to the clipboard.
 - If the mod is not running (or the game is closed later), the CLI keeps working: it prints
   to the console as usual and retries the connection every 2 s, logging the transition once
   (`[bridge] waiting ...` / `[bridge] connected ...` / `[bridge] mod disconnected ...`).
   Lines queued while disconnected are dropped as stale (the console is the source of truth).
 - In the game: `draft` lines update the HUD overlay, `final` lines are auto-sent to chat
-  (`Discord: <text>` for the loopback channel), with guards for an open chat window /
-  inventory (clipboard + notice instead).
+  (as `<name>: <text>`), with guards for an open chat window / inventory (clipboard +
+  notice instead).
 
 ### Options
 
@@ -133,6 +136,8 @@ Start the Minecraft instance with the [Fabric mod](../mod/) first, then run
 | `--threads <N>` | Encoder intra-op threads (default: logical CPUs / 2, clamped to 2..=10) |
 | `--vad-threshold <f32>` | VAD speech-probability threshold in (0, 1] (default: 0.5) |
 | `--vad-min-silence-ms <u32>` | Trailing silence before the VAD ends an utterance (default: 600) |
+| `--name-me <text>` | Chat display name for the microphone channel (default: `Вэвси`) |
+| `--name-discord <text>` | Chat display name for the loopback channel (default: `Аури`) |
 
 ### How live mode works
 
@@ -159,7 +164,7 @@ system audio (WASAPI loopback) ─┘        (callbacks only enqueue)   downmix 
 
 - The loopback channel hears **everything the system plays** — Discord, but also the game,
   music and other apps. There is no per-app filtering yet; everything heard goes to chat
-  (with the `Discord: ` prefix)
+  under the `--name-discord` name
 - The microphone channel may occasionally report `stream error: A buffer underrun or
   overrun` — a dropped-buffer glitch from the Windows audio stack under load. The pipeline
   keeps running; the stream uses a 100 ms ring buffer to make these rare

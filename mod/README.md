@@ -11,9 +11,9 @@ side is documented in [`vocatalk/README.md`](../vocatalk/README.md).
   accepts reconnects.
 - Every `draft` message updates a HUD line above the hotbar (white for `me`, green for
   `discord`). The draft disappears when the matching `final` arrives or after 10 s.
-- Every `final` message is sent to chat on your behalf:
-  - `speaker: "me"` — text as is;
-  - `speaker: "discord"` — prefixed with `Discord: `.
+- Every `final` message is sent to chat as is; the CLI prefixes the speaker's chat name
+  into `text` before sending (defaults `Вэвси` / `Аури`, see
+  [`vocatalk/README.md`](../vocatalk/README.md)).
 
 ## Protocol
 
@@ -37,6 +37,8 @@ Unknown fields, unknown values and malformed lines are skipped (logged at debug 
 
 - Chat screen or inventory open, or not in a world → the text is **not** sent; it is
   copied to the clipboard instead and a short yellow notice appears on the HUD for 3 s.
+- Text starting with `/` is treated as a command and goes to the clipboard the same way
+  (the CLI sends such lines raw, without the speaker-name prefix).
 - Final messages are truncated to 250 characters (chat limit).
 - The socket binds to `127.0.0.1` only — nothing is exposed to the network.
 
@@ -69,5 +71,5 @@ $w.WriteLine('{"t":"final","speaker":"discord","text":"hello from test"}')
 $w.Dispose(); $c.Close()
 ```
 
-You should see `Discord: hello from test` in chat (or the clipboard notice if the chat
+You should see `hello from test` in chat (or the clipboard notice if the chat
 window is open). Replace `"final"` with `"draft"` to see the HUD overlay line instead.

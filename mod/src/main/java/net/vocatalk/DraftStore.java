@@ -33,7 +33,7 @@ final class DraftStore {
     void onMessage(Transcript transcript) {
         if ("final".equals(transcript.t)) {
             drafts.remove(transcript.speaker);
-            Minecraft.getInstance().execute(() -> sendFinal(transcript.speaker, transcript.text));
+            Minecraft.getInstance().execute(() -> sendFinal(transcript.text));
         } else {
             drafts.put(transcript.speaker, new Draft(transcript.text, System.currentTimeMillis()));
         }
@@ -64,9 +64,10 @@ final class DraftStore {
         }
     }
 
-    private void sendFinal(String speaker, String rawText) {
+    private void sendFinal(String rawText) {
         Minecraft client = Minecraft.getInstance();
-        String text = "discord".equals(speaker) ? "Discord: " + rawText : rawText;
+        // The client prefixes the speaker name into the text; send as is.
+        String text = rawText;
         if (text.length() > MAX_CHAT_LENGTH) {
             int end = MAX_CHAT_LENGTH;
             // Do not split a surrogate pair at the cut point.

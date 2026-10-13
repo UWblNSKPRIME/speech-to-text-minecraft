@@ -60,8 +60,8 @@ loopback, always on)                                                            
    [ptt] released
    ```
 
-   Your speech appears in the Minecraft chat; everything the system plays is sent with a
-   `Discord: ` prefix.
+   Your speech appears in the Minecraft chat under the `Вэвси` name; everything the system
+   plays goes under `Аури` (both names configurable with `--name-me` / `--name-discord`).
 
 ## Hotkeys
 
@@ -77,8 +77,9 @@ The `discord` channel (all system audio) has no hotkey and is always recognized.
   chat lines too. Tune `--vad-threshold` / `--vad-min-silence-ms` to raise the bar; there
   is no per-app filtering.
 - Russian speech only (the `e2e_rnnt` head).
-- All Discord speakers are merged into one channel and share the `Discord: ` prefix — no
-  speaker separation.
+- Chat names are set by `--name-me` / `--name-discord` (defaults `Вэвси` / `Аури`);
+  multiple speakers in Discord are not separated — everyone goes under the
+  `--name-discord` name.
 - CPU-only recognition: ~RTF 0.18 at the default 10 threads on the development machine
   (i.e. real time ×5 headroom, sharing the CPU with the game).
 
