@@ -18,6 +18,8 @@ use gigastt_core::vad::{SileroVad, VadConfig, VAD_MODEL_FILE};
 use wasapi::{DeviceEnumerator, Direction, SampleType, StreamMode, WaveFormat};
 
 use crate::audio::{downmix_to_mono, resample_to_engine, RawChunk};
+use crate::net::ModBridge;
+use crate::ptt::{self, Ptt};
 
 /// Samples per engine call (~0.2 s at 16 kHz): batches callback-sized chunks
 /// so per-call overhead stays small without adding much latency.
@@ -73,7 +75,12 @@ pub fn list_devices() -> Result<()> {
 }
 
 /// Run the live pipeline until Ctrl+C.
-pub async fn run(model_dir: &str, threads: usize, input_device: Option<usize>) -> Result<()> {
+pub async fn run(
+    model_dir: &str,
+    threads: usize,
+    input_device: Option<usize>,
+    vad: VadConfig,
+) -> Result<()> {
     let vad_dir = model::default_vad_model_dir();
     eprintln!("models: {model_dir}");
     eprintln!("vad: {vad_dir}");
@@ -82,11 +89,13 @@ pub async fn run(model_dir: &str, threads: usize, input_device: Option<usize>) -
         .await
         .context("failed to download the VAD model")?;
     let vad_path = std::path::Path::new(&vad_dir).join(VAD_MODEL_FILE);
-    let vad = SileroVad::load(&vad_path)
+    let silero = SileroVad::load(&vad_path)
         .with_context(|| format!("failed to load the VAD model from {}", vad_path.display()))?;
     eprintln!(
-        "head: {} (INT8), Silero VAD attached",
-        ModelVariant::E2eRnnt.as_str()
+        "head: {} (INT8), Silero VAD attached (threshold {}, min silence {} ms)",
+        ModelVariant::E2eRnnt.as_str(),
+        vad.threshold,
+        vad.min_silence_ms
     );
 
     let engine = Arc::new(
@@ -99,8 +108,12 @@ pub async fn run(model_dir: &str, threads: usize, input_device: Option<usize>) -
             threads,
         )
         .context("failed to load the model")?
-        .with_vad(Some(vad), VadConfig::default()),
+        .with_vad(Some(silero), vad),
     );
+
+    let bridge = ModBridge::start();
+    let ptt = ptt::start().context("push-to-talk is required for --live")?;
+    let ptt_gate = ptt.gate().clone();
 
     let running = Arc::new(AtomicBool::new(true));
     let (me_tx, me_rx) = sync_channel::<RawChunk>(256);
@@ -128,12 +141,15 @@ pub async fn run(model_dir: &str, threads: usize, input_device: Option<usize>) -
     let mut workers = Vec::new();
     for (name, rx) in [("me", me_rx), ("discord", discord_rx)] {
         let stats = Arc::new(ChannelStats::default());
+        // Only the microphone channel is gated by push-to-talk.
+        let gate = (name == "me").then(|| ptt_gate.clone());
         let handle = thread::Builder::new()
             .name(format!("worker-{name}"))
             .spawn({
                 let engine = engine.clone();
                 let stats = stats.clone();
-                move || channel_worker(name, rx, engine, stats, live_start)
+                let bridge = bridge.clone();
+                move || channel_worker(name, rx, engine, stats, live_start, bridge, gate)
             })
             .context("failed to spawn a channel worker")?;
         workers.push((name, handle, stats));
@@ -314,13 +330,17 @@ fn loopback_capture_inner(tx: SyncSender<RawChunk>, running: &AtomicBool) -> Res
 }
 
 /// Per-channel worker: drain chunks, downmix, resample, run the engine,
-/// print drafts/finals, collect stats. Owns one pool session.
+/// emit drafts/finals (console + mod bridge), collect stats. Owns one pool
+/// session. The microphone channel only admits samples while PTT is held and
+/// flushes the tail on release.
 fn channel_worker(
     name: &'static str,
     rx: Receiver<RawChunk>,
     engine: Arc<Engine>,
     stats: Arc<ChannelStats>,
     live_start: Instant,
+    bridge: ModBridge,
+    ptt_gate: Option<Arc<Ptt>>,
 ) {
     let mut guard = match engine.pool.checkout_blocking() {
         Ok(guard) => guard,
@@ -331,18 +351,42 @@ fn channel_worker(
     };
     let mut state: StreamingState = engine.create_state(false);
     let mut pending: Vec<f32> = Vec::new();
-    let mut decode = |batch: &[f32]| match engine.process_chunk(batch, &mut state, &mut guard) {
+    let mut decode = |batch: &[f32], state: &mut StreamingState| match engine
+        .process_chunk(batch, state, &mut guard)
+    {
         Ok(segments) => {
             for segment in &segments {
-                print_segment(name, segment, &stats, live_start);
+                emit_segment(name, segment, &stats, live_start, &bridge);
             }
         }
         Err(err) => eprintln!("[{name:7}] decode error: {err}"),
     };
+    let flush_tail = |state: &mut StreamingState| {
+        if let Some(tail) = engine.flush_state(state) {
+            emit_segment(name, &tail, &stats, live_start, &bridge);
+        }
+    };
 
+    let mut was_held = ptt::admits(ptt_gate.as_ref());
     loop {
+        let held = ptt::admits(ptt_gate.as_ref());
+        if ptt::released_edge(was_held, held) {
+            // PTT let go: decode the leftover batch and force-finalize the
+            // utterance so the tail is not lost.
+            if !pending.is_empty() {
+                let batch = std::mem::take(&mut pending);
+                decode(&batch, &mut state);
+            }
+            flush_tail(&mut state);
+        }
+        was_held = held;
+
         match rx.recv_timeout(Duration::from_millis(100)) {
             Ok(chunk) => {
+                if !held {
+                    // PTT is up: microphone audio never reaches the engine.
+                    continue;
+                }
                 let mono = downmix_to_mono(&chunk.samples, chunk.channels);
                 match resample_to_engine(&mono, chunk.rate) {
                     Ok(audio) => pending.extend_from_slice(&audio),
@@ -353,7 +397,7 @@ fn channel_worker(
                 }
                 while pending.len() >= BATCH_SAMPLES {
                     let batch: Vec<f32> = pending.drain(..BATCH_SAMPLES).collect();
-                    decode(&batch);
+                    decode(&batch, &mut state);
                 }
             }
             Err(RecvTimeoutError::Timeout) => continue,
@@ -362,14 +406,9 @@ fn channel_worker(
     }
 
     if !pending.is_empty() {
-        decode(&pending);
+        decode(&pending, &mut state);
     }
-    if let Some(tail) = engine.flush_state(&mut state) {
-        if !tail.text.trim().is_empty() {
-            println!("[{name:7}] FINAL: {}", tail.text);
-            stats.finals.fetch_add(1, Ordering::Relaxed);
-        }
-    }
+    flush_tail(&mut state);
 
     let partials = stats.partials.load(Ordering::Relaxed);
     let finals = stats.finals.load(Ordering::Relaxed);
@@ -380,11 +419,13 @@ fn channel_worker(
     }
 }
 
-fn print_segment(
+/// Print a segment and forward it to the mod bridge (one JSON line).
+fn emit_segment(
     name: &str,
     segment: &TranscriptSegment,
     stats: &ChannelStats,
     live_start: Instant,
+    bridge: &ModBridge,
 ) {
     if segment.text.trim().is_empty() {
         return;
@@ -392,9 +433,11 @@ fn print_segment(
     if segment.is_final {
         println!("[{name:7}] FINAL: {}", segment.text);
         stats.finals.fetch_add(1, Ordering::Relaxed);
+        bridge.send("final", name, &segment.text);
     } else {
         println!("[{name:7}] draft: {}", segment.text);
         stats.partials.fetch_add(1, Ordering::Relaxed);
+        bridge.send("draft", name, &segment.text);
         let mut first = stats.first_partial.lock().expect("stats mutex poisoned");
         first.get_or_insert_with(|| live_start.elapsed());
     }

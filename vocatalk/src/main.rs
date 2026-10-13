@@ -1,5 +1,7 @@
 mod audio;
 mod live;
+mod net;
+mod ptt;
 
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -8,6 +10,7 @@ use anyhow::{bail, Context, Result};
 use clap::Parser;
 use gigastt_core::inference::Engine;
 use gigastt_core::model::{self, ModelVariant};
+use gigastt_core::vad::VadConfig;
 
 #[derive(Parser)]
 #[command(
@@ -19,7 +22,7 @@ struct Cli {
     #[arg(long, conflicts_with = "live")]
     file: Option<PathBuf>,
 
-    /// Live recognition: microphone + all system audio (loopback), streaming drafts and finals
+    /// Live recognition: microphone (F8 push-to-talk) + all system audio (loopback), streaming drafts and finals
     #[arg(long)]
     live: bool,
 
@@ -38,6 +41,14 @@ struct Cli {
     /// Microphone device index for --live (see --list-devices)
     #[arg(long)]
     input_device: Option<usize>,
+
+    /// VAD speech-probability threshold for --live, in (0, 1]
+    #[arg(long, default_value_t = 0.5)]
+    vad_threshold: f32,
+
+    /// Trailing silence before the VAD ends an utterance, in milliseconds
+    #[arg(long, default_value_t = 600)]
+    vad_min_silence_ms: u32,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -75,6 +86,18 @@ fn resolve_model_dir(cli: &Cli) -> Result<String> {
     }
 }
 
+fn resolve_vad(cli: &Cli) -> Result<VadConfig> {
+    anyhow::ensure!(
+        cli.vad_threshold > 0.0 && cli.vad_threshold <= 1.0,
+        "--vad-threshold must be in (0, 1]"
+    );
+    Ok(VadConfig {
+        threshold: cli.vad_threshold,
+        min_silence_ms: cli.vad_min_silence_ms,
+        ..VadConfig::default()
+    })
+}
+
 fn threads_for_cpus(logical_cpus: usize) -> usize {
     (logical_cpus / 2).clamp(2, 10)
 }
@@ -96,6 +119,7 @@ async fn main() -> Result<()> {
                 &resolve_model_dir(&cli)?,
                 resolve_threads(&cli)?,
                 cli.input_device,
+                resolve_vad(&cli)?,
             )
             .await
         }
@@ -220,5 +244,37 @@ mod tests {
         assert_eq!(threads_for_cpus(12), 6);
         assert_eq!(threads_for_cpus(28), 10);
         assert_eq!(threads_for_cpus(64), 10);
+    }
+
+    #[test]
+    fn vad_flags_have_documented_defaults() {
+        let cli = Cli::parse_from(["vocatalk", "--live"]);
+        let vad = resolve_vad(&cli).unwrap();
+        assert_eq!(vad.threshold, 0.5);
+        assert_eq!(vad.min_silence_ms, 600);
+    }
+
+    #[test]
+    fn vad_flags_parse_custom_values() {
+        let cli = Cli::parse_from([
+            "vocatalk",
+            "--live",
+            "--vad-threshold",
+            "0.7",
+            "--vad-min-silence-ms",
+            "300",
+        ]);
+        let vad = resolve_vad(&cli).unwrap();
+        assert_eq!(vad.threshold, 0.7);
+        assert_eq!(vad.min_silence_ms, 300);
+    }
+
+    #[test]
+    fn vad_threshold_out_of_range_is_error() {
+        for bad in ["0", "1.5", "nan"] {
+            let cli = Cli::parse_from(["vocatalk", "--live", "--vad-threshold", bad]);
+            let err = resolve_vad(&cli).unwrap_err();
+            assert!(err.to_string().contains("--vad-threshold"), "bad={bad}");
+        }
     }
 }

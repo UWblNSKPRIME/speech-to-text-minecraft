@@ -1,17 +1,18 @@
 # vocatalk
 
-Voice input for the Minecraft chat: speak Russian, get a punctuated transcript — today as a
-recognition CLI and a live two-channel audio stream, tomorrow wired into a Fabric mod.
+Voice input for the Minecraft chat: speak Russian, get a punctuated transcript streamed into
+the game — via a live two-channel audio pipeline, a TCP bridge and a Fabric mod.
 
 ## Status
 
-Stage 2 of 5, two modes:
+Stage 4 of 5, two modes:
 
 - `--file` — batch: transcribe a WAV file (stage 1)
-- `--live` — live: microphone and all system audio recognized in parallel, with streaming
-  drafts and finals (stage 2)
+- `--live` — live: microphone (F8 push-to-talk) and all system audio recognized in parallel,
+  with streaming drafts and finals sent to the console and to the Fabric mod over TCP
+  (stages 2 + 4)
 
-The Minecraft integration (mod, TCP, push-to-talk) is roadmap — see below.
+The Fabric mod itself lives in [`../mod/`](../mod/).
 
 ## Features
 
@@ -24,6 +25,8 @@ The Minecraft integration (mod, TCP, push-to-talk) is roadmap — see below.
 - Batch mode prints wall time and RTF for every run
 - Live mode: two independent channels, streaming `draft` lines and VAD-endpointed `FINAL`
   lines, per-channel TTFP metric and exit statistics
+- F8 push-to-talk for the microphone channel with force-finalization on release
+- TCP bridge to the Fabric mod (`127.0.0.1:47832`, JSON-lines) with auto-reconnect
 - No GPU, no external services
 
 ## Requirements
@@ -54,33 +57,68 @@ recognition: 0.95 s (wall), RTF 0.238
 cargo run --release -- --live
 ```
 
-Exactly one of `--file` / `--live` must be given. A run looks like this (abridged, real
-output — the mic was silent while the system played speech):
+Exactly one of `--file` / `--live` must be given. Hold **F8** to talk: microphone samples
+only reach the recognition engine while the key is down. A run looks like this (abridged,
+real output):
 
 ```
 models: ~/.gigastt/models
 vad: ~/.gigastt/models/vad
-head: e2e_rnnt (INT8), Silero VAD attached
+head: e2e_rnnt (INT8), Silero VAD attached (threshold 0.5, min silence 600 ms)
+[bridge] waiting for the mod on 127.0.0.1:47832 (transcripts go to the console either way)
 [me     ] microphone: Microphone (USB Advanced Audio Device) (48000 Hz, 2 ch)
 live: listening on both channels (Ctrl+C to stop)
 [discord] loopback: Speakers (USB Advanced Audio Device) (48000 Hz, 2 ch)
+[bridge] connected to the mod at 127.0.0.1:47832
+[ptt] held
+[me     ] draft: привет мир
+[me     ] FINAL: привет мир
+[ptt] released
 [discord] draft: не залученный сам корестователь
 [discord] FINAL: не залученный сам корестователь
-[discord] draft: час на сборку объектов заново.
-[discord] FINAL: час на сборку объектов заново.
 ^C
 shutting down...
-[me     ] partials: 0, finals: 0
-TTFP[me]: n/a (no speech detected)
+[me     ] partials: 2, finals: 1
+TTFP[me]: 0.64 s
 [discord] partials: 4, finals: 2
 TTFP[discord]: 0.91 s
 ```
 
 - `draft:` — interim hypothesis, printed as a new line on every update (never overwritten)
-- `FINAL:` — the utterance is closed by VAD trailing silence; empty finals are not printed
+- `FINAL:` — the utterance is closed by VAD trailing silence, or force-finalized when PTT is
+  released; empty finals are not printed
+- `[ptt] held` / `[ptt] released` — printed once per push-to-talk transition
+- `[bridge] ...` — connection state of the TCP link to the Fabric mod, once per event
 - `TTFP[...]` — rough time-to-first-partial per channel, measured from live start to that
   channel's first draft. Includes VAD and decode-stride delays; it is a coarse metric, not a
   lab-grade latency measurement.
+
+### Push-to-talk (F8)
+
+- The microphone channel is gated by **F8** (global hotkey, works while the game has focus):
+  samples only enter the engine while the key is held; while it is up, buffered microphone
+  audio is dropped and no drafts are produced for the `me` channel.
+- On release the current utterance is force-finalized (`flush_state`): the leftover audio
+  batch is decoded and the tail is closed immediately as a `FINAL` — the text does not wait
+  for the VAD's trailing silence.
+- The `discord` channel (system audio) is always on and is never gated.
+- If F8 is already taken by another application, `--live` exits with an error at startup.
+
+### Minecraft integration
+
+Start the Minecraft instance with the [Fabric mod](../mod/) first, then run
+`vocatalk --live`. What happens:
+
+- The CLI connects to the mod at `127.0.0.1:47832` and streams every `draft`/`final` of both
+  channels as JSON lines (protocol: see [`mod/README.md`](../mod/README.md)). The console
+  output stays as-is — both sinks receive the same events.
+- If the mod is not running (or the game is closed later), the CLI keeps working: it prints
+  to the console as usual and retries the connection every 2 s, logging the transition once
+  (`[bridge] waiting ...` / `[bridge] connected ...` / `[bridge] mod disconnected ...`).
+  Lines queued while disconnected are dropped as stale (the console is the source of truth).
+- In the game: `draft` lines update the HUD overlay, `final` lines are auto-sent to chat
+  (`Discord: <text>` for the loopback channel), with guards for an open chat window /
+  inventory (clipboard + notice instead).
 
 ### Options
 
@@ -92,30 +130,35 @@ TTFP[discord]: 0.91 s
 | `--input-device <index>` | Microphone to use in `--live` (default: system default input) |
 | `--model-dir <path>` | Model directory (defaults to `~/.gigastt/models`) |
 | `--threads <N>` | Encoder intra-op threads (default: logical CPUs / 2, clamped to 2..=10) |
+| `--vad-threshold <f32>` | VAD speech-probability threshold in (0, 1] (default: 0.5) |
+| `--vad-min-silence-ms <u32>` | Trailing silence before the VAD ends an utterance (default: 600) |
 
 ### How live mode works
 
 ```
-microphone (cpal) ────────────┐
-                             ├─▶ raw f32 chunks ─▶ mpsc ─▶ per-channel worker:
-system audio (WASAPI loopback)┘        (callbacks only enqueue)   downmix → 16 kHz mono
-                                             └─▶ Engine: pool of 2 sessions, shared Silero VAD
-                                                  └─▶ draft / FINAL lines, stats, TTFP
+microphone (cpal) ──── F8 gate ─┐
+                                ├─▶ raw f32 chunks ─▶ mpsc ─▶ per-channel worker:
+system audio (WASAPI loopback) ─┘        (callbacks only enqueue)   downmix → 16 kHz mono
+                                                 └─▶ Engine: pool of 2 sessions, shared Silero VAD
+                                                      └─▶ draft / FINAL ─▶ console + TCP bridge ─▶ mod
 ```
 
 - One `Engine`, `pool_size = 2` — a parallel recognition session per channel; a single shared
-  Silero VAD does endpointing for both (a `FINAL` comes after ~0.5 s of trailing silence)
+  Silero VAD does endpointing for both (a `FINAL` comes after `--vad-min-silence-ms` of
+  trailing silence, or immediately on PTT release for the microphone)
 - Audio callbacks never do inference: they only push chunks into channels; a dedicated worker
-  thread per channel resamples (gigastt-core's polyphase resampler), runs the engine and prints
+  thread per channel resamples (gigastt-core's polyphase resampler), runs the engine and emits
+  drafts/finals to the console and the mod bridge
+- The mod bridge is a daemon thread with a 100-line queue: workers never block on it; while
+  the mod is away the queue is drained (stale) and the connection is retried every 2 s
 - On Ctrl+C both streams stop, in-flight audio is drained, and each channel prints its
   partial/final counts and TTFP
 
 ### Live caveats
 
 - The loopback channel hears **everything the system plays** — Discord, but also the game,
-  music and other apps. There is no per-app filtering yet; push-to-talk gating for the
-  microphone comes in stage 4
-- No TCP output, hotkeys or Minecraft wiring yet (stages 3–4)
+  music and other apps. There is no per-app filtering yet; everything heard goes to chat
+  (with the `Discord: ` prefix)
 - The microphone channel may occasionally report `stream error: A buffer underrun or
   overrun` — a dropped-buffer glitch from the Windows audio stack under load. The pipeline
   keeps running; the stream uses a 100 ms ring buffer to make these rare
@@ -156,12 +199,12 @@ WAV file ────────▶ gigastt-core (GigaAM v3, e2e_rnnt, CPU) ─
 mic/system audio ─▶ downmix → 16 kHz → Silero VAD endpointing ─┘
 ```
 
-The full pipeline the project is heading towards:
+The full pipeline (stages 1–4 wired together):
 
 ```
-microphone (PTT) ─┐
-                  ├─▶ Silero VAD ─▶ GigaAM v3 ─▶ TCP 127.0.0.1 ─▶ Fabric mod ─▶ Minecraft chat
-Discord loopback ─┘     (stage 2 ✓)    (stage 1 ✓)   (stage 4)        (stage 3)
+microphone (F8 PTT) ─┐     stage 4 ✓        stage 1 ✓      stage 4 ✓     stage 3 ✓
+                     ├─▶ Silero VAD ─▶ GigaAM v3 ─▶ TCP 127.0.0.1 ─▶ Fabric mod ─▶ Minecraft chat
+Discord loopback ────┘
 ```
 
 ## Roadmap
@@ -169,10 +212,10 @@ Discord loopback ─┘     (stage 2 ✓)    (stage 1 ✓)   (stage 4)        (s
 - [x] Stage 1 — recognition engine (`gigastt-core`, `e2e_rnnt`, CLI on a WAV file)
 - [x] Stage 2 — live audio: microphone (cpal) + WASAPI loopback, Silero VAD endpointing,
       streaming partial/final transcripts, per-channel TTFP
-- [ ] Stage 3 — Fabric mod for Minecraft: socket listener, chat overlay, auto-send with guards
+- [x] Stage 3 — Fabric mod for Minecraft: socket listener, chat overlay, auto-send with guards
       (chat window / inventory open → clipboard instead)
-- [ ] Stage 4 — integration: merge engine + mod, sentence endpointing, push-to-talk hotkey,
-      TCP output
+- [x] Stage 4 — integration: TCP bridge to the mod, F8 push-to-talk with force-finalize on
+      release, VAD threshold flags
 - [ ] Stage 5 — documentation and tuning
 
 ## Future: CUDA
