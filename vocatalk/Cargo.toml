@@ -1,0 +1,16 @@
+[package]
+name = "vocatalk"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Voice input for Minecraft chat: Russian speech recognition powered by GigaAM v3 (gigastt-core)"
+repository = "https://github.com/UWblNSKPRIME/speech-to-text-minecraft"
+readme = "README.md"
+keywords = ["speech-recognition", "asr", "gigaam", "minecraft", "russian"]
+categories = ["command-line-utilities", "multimedia::audio"]
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+gigastt-core = { version = "2.22", default-features = false, features = ["net", "async-pool", "file-decode"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
