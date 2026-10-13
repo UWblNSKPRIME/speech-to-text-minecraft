@@ -26,6 +26,12 @@
 - [ ] 5. README (**EN**): сборка, схема, хоткеи, «Future: CUDA»
 - [ ] Качество репо: LICENSE (MIT), .gitignore, README EN, cargo fmt/clippy без замечаний, метаданные в Cargo.toml (description/license/repository)
 
+## Репозиторий и анонимность
+- Public repo: https://github.com/UWblNSKPRIME/speech-to-text-minecraft (ветка `main`).
+- Документация на **английском** (корневой README + vocatalk/README); этот PLAN.md — на русском (дев-план).
+- **Анонимность**: в файлах и коммитах никаких PII — реальных имён, email, юзернеймов Windows, локальных абсолютных путей (плейсхолдеры `<repo-root>`, `<minecraft-instance>`). Git-identity коммитов — только локальный `UWblNSKPRIME <UWblNSKPRIME@users.noreply.github.com>`, глобальный конфиг не трогать.
+
 ## Открытые вопросы
+- (закрыто) `1.md` (research-заметки про GigaAM) — пользователь решил оставить локально, в репо не публиковать; файл добавлен в `.gitignore`.
 - Тестовый wav для этапа 1 — взять из репо gigastt/HF или попросить у пользователя.
 - Поддержка live-диаризации во встраивании (capability) — уточнить на этапе 2, но план не зависит от неё.

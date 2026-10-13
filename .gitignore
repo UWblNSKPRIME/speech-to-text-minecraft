@@ -25,3 +25,6 @@ rustc-ice-*.txt
 #.idea/
 .idea/
 .vscode/
+
+# Local-only research notes, never published
+1.md
