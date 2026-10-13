@@ -2,7 +2,8 @@
 
 Fabric client mod for Minecraft 26.2. Receives transcripts from the `vocatalk` CLI over a
 local TCP socket, shows the current draft on a HUD overlay and sends final transcripts to
-the in-game chat.
+the in-game chat. Part of the [speech-to-text-minecraft](../README.md) project; the CLI
+side is documented in [`vocatalk/README.md`](../vocatalk/README.md).
 
 ## How it works
 

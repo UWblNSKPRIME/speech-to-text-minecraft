@@ -23,7 +23,7 @@
 - [x] 2. Два канала: cpal (микроф) + wasapi loopback + Silero VAD ×2 + поток partial/final в консоль, замер TTFP (коммит 4301b8c; ожидает live-смоук с речью от пользователя)
 - [x] 3. Fabric-мод 26.2: TCP-слушатель 127.0.0.1:47832 (JSON-lines), HUD-оверлей черновиков (me — белый, discord — зелёный, таймаут 10 с), авто-отправка final с guard'ами (чат/инвентарь/нет мира → буфер обмена + HUD-уведомление), обрезка до 250 символов; gradlew build → jar скопирован в mods — ожидает смоук в игре от пользователя
 - [x] 4. Интеграция: TCP-мост в Rust → мод (127.0.0.1:47832, JSON-lines, reconnect раз в 2 с, очередь 100 строк со сбросом устаревшего при реконнекте, try_send — воркеры не блокируются), PTT F8 (global-hotkey; гейтинг аудио канала me, force-finalize хвоста через flush_state на release, статус [ptt] held/released на смену), CLI-флаги --vad-threshold (0.5) / --vad-min-silence-ms (600) — 22 теста, смоуки TCP со слушателем и без; энд-ту-энд в игре — за пользователем
-- [ ] 5. README (**EN**): сборка, схема, хоткеи, «Future: CUDA»
+- [x] 5. Документация (**EN**): корневой README — витрина (архитектура, quick start, hotkeys, limitations, troubleshooting, CUDA), vocatalk/README — детали CLI (флаги, бенчмарки, пайплайн), mod/README — протокол и гарды; ручные смоуки этапов 2/3/4 (речь с F8 в игре, оверлей/гарды мода, end-to-end доставка в чат) — за пользователем
 - [x] Качество репо: LICENSE (MIT), .gitignore, README EN, cargo fmt/clippy без замечаний, метаданные в Cargo.toml (description/license/repository)
 
 ## Репозиторий и анонимность

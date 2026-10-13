@@ -3,16 +3,17 @@
 Voice input for the Minecraft chat: speak Russian, get a punctuated transcript streamed into
 the game — via a live two-channel audio pipeline, a TCP bridge and a Fabric mod.
 
-## Status
+## What it is
 
-Stage 4 of 5, two modes:
+Two modes in one binary:
 
-- `--file` — batch: transcribe a WAV file (stage 1)
+- `--file` — batch: transcribe a WAV file
 - `--live` — live: microphone (F8 push-to-talk) and all system audio recognized in parallel,
   with streaming drafts and finals sent to the console and to the Fabric mod over TCP
-  (stages 2 + 4)
 
-The Fabric mod itself lives in [`../mod/`](../mod/).
+For the project overview, quick start and troubleshooting see the
+[root README](../README.md); this document covers CLI details: flags, benchmarks and the
+live pipeline internals. The Fabric mod itself lives in [`../mod/`](../mod/).
 
 ## Features
 
@@ -199,13 +200,8 @@ WAV file ────────▶ gigastt-core (GigaAM v3, e2e_rnnt, CPU) ─
 mic/system audio ─▶ downmix → 16 kHz → Silero VAD endpointing ─┘
 ```
 
-The full pipeline (stages 1–4 wired together):
-
-```
-microphone (F8 PTT) ─┐     stage 4 ✓        stage 1 ✓      stage 4 ✓     stage 3 ✓
-                     ├─▶ Silero VAD ─▶ GigaAM v3 ─▶ TCP 127.0.0.1 ─▶ Fabric mod ─▶ Minecraft chat
-Discord loopback ────┘
-```
+The end-to-end path (microphone → chat) is shown in the
+[root README](../README.md#architecture); below are the live-mode internals.
 
 ## Roadmap
 
@@ -216,14 +212,10 @@ Discord loopback ────┘
       (chat window / inventory open → clipboard instead)
 - [x] Stage 4 — integration: TCP bridge to the mod, F8 push-to-talk with force-finalize on
       release, VAD threshold flags
-- [ ] Stage 5 — documentation and tuning
+- [x] Stage 5 — documentation: root quick start/limitations, CLI and mod references
 
-## Future: CUDA
-
-The current build is CPU-only on purpose (simplest to build and debug). The reference machine has
-an NVIDIA GTX 1650, and gigastt-core ships an optional CUDA execution provider behind a Cargo
-feature — switching later should be a feature flag plus a CUDA-enabled ONNX Runtime build, with
-no changes to the recognition code. Not scheduled yet.
+GPU acceleration (CUDA or another ONNX Runtime execution provider) is not scheduled yet —
+see [Future: CUDA](../README.md#future-cuda) in the root README.
 
 ## License
 
