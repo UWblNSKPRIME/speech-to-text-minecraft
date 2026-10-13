@@ -4,7 +4,7 @@
 
 use std::io::Write;
 use std::net::TcpStream;
-use std::sync::mpsc::{sync_channel, Receiver, RecvTimeoutError, SyncSender};
+use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use std::thread;
 use std::time::Duration;
 
@@ -55,22 +55,22 @@ impl ModBridge {
     }
 
     fn run(&self, rx: Receiver<String>) {
+        // This thread owns a sender clone (`self`), so `rx` never disconnects:
+        // the loop runs until the process exits.
         eprintln!(
             "[bridge] waiting for the mod on {MOD_ADDR} (transcripts go to the console either way)"
         );
         let mut socket: Option<TcpStream> = None;
         loop {
             match socket {
-                Some(ref mut stream) => match rx.recv_timeout(POLL) {
-                    Ok(line) => {
+                Some(ref mut stream) => {
+                    if let Ok(line) = rx.recv_timeout(POLL) {
                         if let Err(err) = writeln!(stream, "{line}") {
                             eprintln!("[bridge] mod disconnected: {err}");
                             socket = None;
                         }
                     }
-                    Err(RecvTimeoutError::Timeout) => {}
-                    Err(RecvTimeoutError::Disconnected) => break,
-                },
+                }
                 None => {
                     // Lines queued while the mod was away are stale: drop them
                     // and retry the connection at most every CONNECT_RETRY.
@@ -80,9 +80,6 @@ impl ModBridge {
                         let _ = stream.set_nodelay(true);
                         eprintln!("[bridge] connected to the mod at {MOD_ADDR}");
                         socket = Some(stream);
-                    }
-                    if let Err(RecvTimeoutError::Disconnected) = rx.recv_timeout(Duration::ZERO) {
-                        break;
                     }
                 }
             }

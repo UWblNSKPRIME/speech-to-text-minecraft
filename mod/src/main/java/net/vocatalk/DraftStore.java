@@ -52,7 +52,7 @@ final class DraftStore {
 
         int y = graphics.guiHeight() - 70;
         if (current != null) {
-            graphics.text(client.font, current.text(), 4, y, COLOR_NOTICE);
+            graphics.text(client.font, current.text(), 4, y, COLOR_NOTICE, true);
             y += client.font.lineHeight + 1;
         }
         for (String speaker : SPEAKER_ORDER) {
@@ -68,7 +68,13 @@ final class DraftStore {
         Minecraft client = Minecraft.getInstance();
         String text = "discord".equals(speaker) ? "Discord: " + rawText : rawText;
         if (text.length() > MAX_CHAT_LENGTH) {
-            text = text.substring(0, MAX_CHAT_LENGTH);
+            int end = MAX_CHAT_LENGTH;
+            // Do not split a surrogate pair at the cut point.
+            if (Character.isHighSurrogate(text.charAt(end - 1))
+                    && Character.isLowSurrogate(text.charAt(end))) {
+                end--;
+            }
+            text = text.substring(0, end);
         }
 
         Screen screen = client.gui.screen();
@@ -77,6 +83,8 @@ final class DraftStore {
             copyToClipboard(client, text, "vocatalk: not in world, copied to clipboard");
         } else if (screen instanceof ChatScreen || screen instanceof InventoryScreen) {
             copyToClipboard(client, text, "vocatalk: chat busy, copied to clipboard");
+        } else if (text.startsWith("/")) {
+            copyToClipboard(client, text, "vocatalk: command-like text, copied to clipboard");
         } else {
             connection.sendChat(text);
         }

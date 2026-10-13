@@ -65,6 +65,7 @@ fn resolve_mode(cli: &Cli) -> Result<Mode> {
     match (&cli.file, cli.live) {
         (Some(path), false) => Ok(Mode::File(path.clone())),
         (None, true) => Ok(Mode::Live),
+        // defense-in-depth: clap enforces this via conflicts_with
         (Some(_), true) => bail!("use exactly one of --file or --live"),
         (None, false) => bail!("nothing to do: pass --file <wav> or --live (see --list-devices)"),
     }

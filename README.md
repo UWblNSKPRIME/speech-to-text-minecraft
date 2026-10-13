@@ -42,7 +42,8 @@ loopback, always on)                                                            
    ```
 
    Copy `mod/build/libs/vocatalk-<version>.jar` into the `mods` folder of your instance.
-4. **Launch the instance** and join a world (the mod opens the socket in-game).
+4. **Launch the instance** — the mod opens the socket at client startup (main menu) — and
+   join a world (finals sent before you join go to the clipboard instead of chat).
 5. **Run the CLI** and speak:
 
    ```sh
@@ -83,9 +84,10 @@ The `discord` channel (all system audio) has no hotkey and is always recognized.
 
 ## Troubleshooting
 
-- **The CLI stays on `[bridge] waiting for the mod ...`** — the game is not running, the
-  player is not in a world, or another process holds port 47832. The CLI keeps retrying
-  every 2 s and stays fully usable as a console tool.
+- **The CLI stays on `[bridge] waiting for the mod ...`** — the game is not running or
+  another process holds port 47832. The CLI keeps retrying every 2 s and stays fully
+  usable as a console tool. (The socket opens when the client starts, i.e. from the main
+  menu; without a loaded world, finals are copied to the clipboard instead of chat.)
 - **No `me` transcripts** — check `--list-devices` and pick the right input with
   `--input-device <index>`; if F8 is taken by another app, `--live` refuses to start with
   an error (reassign that app's hotkey).

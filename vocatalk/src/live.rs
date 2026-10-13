@@ -211,7 +211,7 @@ fn start_microphone(index: Option<usize>, tx: SyncSender<RawChunk>) -> Result<St
         SampleFormat::F32 => device.build_input_stream(
             config,
             move |data: &[f32], _| {
-                let _ = tx.send(RawChunk {
+                let _ = tx.try_send(RawChunk {
                     samples: data.to_vec(),
                     channels,
                     rate,
@@ -224,7 +224,7 @@ fn start_microphone(index: Option<usize>, tx: SyncSender<RawChunk>) -> Result<St
             config,
             move |data: &[i16], _| {
                 let samples = data.iter().map(|&s| s as f32 / 32768.0).collect();
-                let _ = tx.send(RawChunk {
+                let _ = tx.try_send(RawChunk {
                     samples,
                     channels,
                     rate,
@@ -409,14 +409,7 @@ fn channel_worker(
         decode(&pending, &mut state);
     }
     flush_tail(&mut state);
-
-    let partials = stats.partials.load(Ordering::Relaxed);
-    let finals = stats.finals.load(Ordering::Relaxed);
-    eprintln!("[{name:7}] partials: {partials}, finals: {finals}");
-    match *stats.first_partial.lock().expect("stats mutex poisoned") {
-        Some(ttfp) => eprintln!("TTFP[{name}]: {:.2} s", ttfp.as_secs_f64()),
-        None => eprintln!("TTFP[{name}]: n/a (no speech detected)"),
-    }
+    // Exit stats (partials/finals/TTFP) are printed by run() after join.
 }
 
 /// Print a segment and forward it to the mod bridge (one JSON line).

@@ -18,6 +18,8 @@ final class TranscriptServer {
     private static final Logger LOGGER = LoggerFactory.getLogger("vocatalk");
     private static final Gson GSON = new Gson();
     private static final int PORT = 47832;
+    private static final int MAX_LINE_CHARS = 8 * 1024;
+    private static final int SO_TIMEOUT_MS = 300_000;
 
     private final Consumer<Transcript> handler;
 
@@ -48,6 +50,7 @@ final class TranscriptServer {
     }
 
     private void serve(Socket socket) throws IOException {
+        socket.setSoTimeout(SO_TIMEOUT_MS);
         LOGGER.info("client connected: {}", socket.getRemoteSocketAddress());
         BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
         String line;
@@ -55,7 +58,19 @@ final class TranscriptServer {
             if (line.isBlank()) {
                 continue;
             }
-            Transcript transcript = parse(line);
+            if (line.length() > MAX_LINE_CHARS) {
+                LOGGER.debug("skipping oversized line ({} chars)", line.length());
+                continue;
+            }
+            Transcript transcript;
+            try {
+                transcript = parse(line);
+            } catch (Throwable t) {
+                // Gson may throw Errors (e.g. StackOverflowError on deeply
+                // nested JSON) that would kill this thread.
+                LOGGER.debug("skipping unparseable line: {}", line);
+                continue;
+            }
             if (transcript != null) {
                 handler.accept(transcript);
             }

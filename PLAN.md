@@ -25,6 +25,7 @@
 - [x] 4. Интеграция: TCP-мост в Rust → мод (127.0.0.1:47832, JSON-lines, reconnect раз в 2 с, очередь 100 строк со сбросом устаревшего при реконнекте, try_send — воркеры не блокируются), PTT F8 (global-hotkey; гейтинг аудио канала me, force-finalize хвоста через flush_state на release, статус [ptt] held/released на смену), CLI-флаги --vad-threshold (0.5) / --vad-min-silence-ms (600) — 22 теста, смоуки TCP со слушателем и без; энд-ту-энд в игре — за пользователем
 - [x] 5. Документация (**EN**): корневой README — витрина (архитектура, quick start, hotkeys, limitations, troubleshooting, CUDA), vocatalk/README — детали CLI (флаги, бенчмарки, пайплайн), mod/README — протокол и гарды; ручные смоуки этапов 2/3/4 (речь с F8 в игре, оверлей/гарды мода, end-to-end доставка в чат) — за пользователем
 - [x] Качество репо: LICENSE (MIT), .gitignore, README EN, cargo fmt/clippy без замечаний, метаданные в Cargo.toml (description/license/repository)
+- [x] Ревью-фикс (should-fix + ниты): убрана двойная печать статистики, slash-guard в моде (`/` → буфер обмена), try_send в cpal-колбэках, TranscriptServer (лимит 8 КБ, catch Throwable, soTimeout 300 с), обрезка по границе кодовой точки, тень у notice, README про сокет в onInitializeClient — ревью-фикс закоммичен
 
 ## Репозиторий и анонимность
 - Public repo: https://github.com/UWblNSKPRIME/speech-to-text-minecraft (ветка `main`).
