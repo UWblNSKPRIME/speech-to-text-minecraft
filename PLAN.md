@@ -19,8 +19,8 @@
 - GPU GTX 1650, CUDA Toolkit/Vulkan SDK НЕ ставить.
 
 ## Этапы
-- [ ] 1. Движок: gigastt-core в проект, CLI `vocatalk --file x.wav`, проверка пунктуации и RTF
-- [ ] 2. Два канала: cpal (микроф) + wasapi loopback + Silero VAD ×2 + поток partial/final в консоль, замер TTFP
+- [x] 1. Движок: gigastt-core в проект, CLI `vocatalk --file x.wav`, проверка пунктуации и RTF
+- [x] 2. Два канала: cpal (микроф) + wasapi loopback + Silero VAD ×2 + поток partial/final в консоль, замер TTFP
 - [ ] 3. Fabric-мод 26.2: сокет, оверлей, авто-отправка, guard'ы; gradlew build → jar в mods
 - [ ] 4. Интеграция: мерж, эндпоинт (пауза VAD + пунктуация), PTT, тюнинг порогов
 - [ ] 5. README (**EN**): сборка, схема, хоткеи, «Future: CUDA»
@@ -33,5 +33,5 @@
 
 ## Открытые вопросы
 - (закрыто) `1.md` (research-заметки про GigaAM) — пользователь решил оставить локально, в репо не публиковать; файл добавлен в `.gitignore`.
-- Тестовый wav для этапа 1 — взять из репо gigastt/HF или попросить у пользователя.
-- Поддержка live-диаризации во встраивании (capability) — уточнить на этапе 2, но план не зависит от неё.
+- (закрыто) Тестовый wav для этапа 1 — взят из репо gigastt (`golos_00` → `vocatalk/testdata/sample.wav`).
+- (закрыто) Поддержка live-диаризации — этап 2 закрыт без неё (`create_state(false)`, общий префикс `Discord:`); включать capability не потребовалось.

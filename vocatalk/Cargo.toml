@@ -12,5 +12,7 @@ categories = ["command-line-utilities", "multimedia::audio"]
 [dependencies]
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
+cpal = "0.18"
 gigastt-core = { version = "2.22", default-features = false, features = ["net", "async-pool", "file-decode"] }
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal"] }
+wasapi = "0.26"

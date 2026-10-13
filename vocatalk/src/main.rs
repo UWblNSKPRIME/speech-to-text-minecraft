@@ -1,7 +1,10 @@
-use std::path::PathBuf;
+mod audio;
+mod live;
+
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use clap::Parser;
 use gigastt_core::inference::Engine;
 use gigastt_core::model::{self, ModelVariant};
@@ -9,12 +12,16 @@ use gigastt_core::model::{self, ModelVariant};
 #[derive(Parser)]
 #[command(
     name = "vocatalk",
-    about = "Voice input for Minecraft chat — stage 1: recognition engine"
+    about = "Voice input for Minecraft chat: file transcription and live two-channel recognition"
 )]
 struct Cli {
-    /// Path to a WAV file with Russian speech
+    /// Transcribe a WAV file (batch mode)
+    #[arg(long, conflicts_with = "live")]
+    file: Option<PathBuf>,
+
+    /// Live recognition: microphone + all system audio (loopback), streaming drafts and finals
     #[arg(long)]
-    file: PathBuf,
+    live: bool,
 
     /// Model directory (defaults to ~/.gigastt/models)
     #[arg(long)]
@@ -23,38 +30,87 @@ struct Cli {
     /// Encoder intra-op threads (default: logical CPUs / 2, clamped to 2..=10)
     #[arg(long)]
     threads: Option<usize>,
+
+    /// List audio devices and exit
+    #[arg(long)]
+    list_devices: bool,
+
+    /// Microphone device index for --live (see --list-devices)
+    #[arg(long)]
+    input_device: Option<usize>,
 }
 
-fn resolve_threads(logical_cpus: usize) -> usize {
+#[derive(Debug, PartialEq, Eq)]
+enum Mode {
+    ListDevices,
+    File(PathBuf),
+    Live,
+}
+
+fn resolve_mode(cli: &Cli) -> Result<Mode> {
+    if cli.list_devices {
+        return Ok(Mode::ListDevices);
+    }
+    match (&cli.file, cli.live) {
+        (Some(path), false) => Ok(Mode::File(path.clone())),
+        (None, true) => Ok(Mode::Live),
+        (Some(_), true) => bail!("use exactly one of --file or --live"),
+        (None, false) => bail!("nothing to do: pass --file <wav> or --live (see --list-devices)"),
+    }
+}
+
+fn resolve_threads(cli: &Cli) -> Result<usize> {
+    let threads = cli.threads.unwrap_or_else(default_threads);
+    anyhow::ensure!(threads >= 1, "--threads must be >= 1");
+    Ok(threads)
+}
+
+fn resolve_model_dir(cli: &Cli) -> Result<String> {
+    match &cli.model_dir {
+        Some(dir) => dir
+            .to_str()
+            .context("model directory path contains non-UTF8 characters")
+            .map(str::to_owned),
+        None => Ok(model::default_model_dir()),
+    }
+}
+
+fn threads_for_cpus(logical_cpus: usize) -> usize {
     (logical_cpus / 2).clamp(2, 10)
 }
 
 fn default_threads() -> usize {
     std::thread::available_parallelism()
-        .map(|n| resolve_threads(n.get()))
+        .map(|n| threads_for_cpus(n.get()))
         .unwrap_or(4)
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
+    match resolve_mode(&cli)? {
+        Mode::ListDevices => live::list_devices(),
+        Mode::File(path) => transcribe_file(&cli, &path).await,
+        Mode::Live => {
+            live::run(
+                &resolve_model_dir(&cli)?,
+                resolve_threads(&cli)?,
+                cli.input_device,
+            )
+            .await
+        }
+    }
+}
 
-    anyhow::ensure!(cli.file.is_file(), "file not found: {}", cli.file.display());
+async fn transcribe_file(cli: &Cli, file: &Path) -> Result<()> {
+    anyhow::ensure!(file.is_file(), "file not found: {}", file.display());
 
-    let model_dir = match &cli.model_dir {
-        Some(dir) => dir
-            .to_str()
-            .context("model directory path contains non-UTF8 characters")?
-            .to_owned(),
-        None => model::default_model_dir(),
-    };
+    let model_dir = resolve_model_dir(cli)?;
+    let threads = resolve_threads(cli)?;
 
     eprintln!("models: {model_dir}");
     let variant = model::ensure_model_variant(Some(ModelVariant::E2eRnnt), &model_dir).await?;
     eprintln!("head: {} (INT8)", variant.as_str());
-
-    let threads = cli.threads.unwrap_or_else(default_threads);
-    anyhow::ensure!(threads >= 1, "--threads must be >= 1");
     eprintln!("using {threads} encoder threads");
 
     let engine = Engine::load_with_pools_threads_variant(
@@ -67,8 +123,7 @@ async fn main() -> Result<()> {
     )
     .context("failed to load the model")?;
 
-    let path = cli
-        .file
+    let path = file
         .to_str()
         .context("audio file path contains non-UTF8 characters")?;
 
@@ -106,13 +161,38 @@ mod tests {
     #[test]
     fn parses_file_flag() {
         let cli = Cli::parse_from(["vocatalk", "--file", "sample.wav"]);
-        assert_eq!(cli.file, PathBuf::from("sample.wav"));
+        assert_eq!(cli.file, Some(PathBuf::from("sample.wav")));
+        assert!(!cli.live);
         assert!(cli.model_dir.is_none());
     }
 
     #[test]
-    fn file_flag_is_required() {
-        assert!(Cli::try_parse_from(["vocatalk"]).is_err());
+    fn file_and_live_together_is_error() {
+        let parsed = Cli::try_parse_from(["vocatalk", "--file", "a.wav", "--live"]);
+        assert!(parsed.is_err());
+    }
+
+    #[test]
+    fn neither_file_nor_live_is_error() {
+        let cli = Cli::parse_from(["vocatalk"]);
+        let err = resolve_mode(&cli).unwrap_err();
+        assert!(err.to_string().contains("--file"));
+        assert!(err.to_string().contains("--live"));
+    }
+
+    #[test]
+    fn live_without_file_is_ok() {
+        let cli = Cli::parse_from(["vocatalk", "--live"]);
+        assert_eq!(resolve_mode(&cli).unwrap(), Mode::Live);
+    }
+
+    #[test]
+    fn file_mode_resolves_to_path() {
+        let cli = Cli::parse_from(["vocatalk", "--file", "a.wav"]);
+        assert_eq!(
+            resolve_mode(&cli).unwrap(),
+            Mode::File(PathBuf::from("a.wav"))
+        );
     }
 
     #[test]
@@ -135,10 +215,10 @@ mod tests {
 
     #[test]
     fn default_thread_count_is_clamped() {
-        assert_eq!(resolve_threads(1), 2);
-        assert_eq!(resolve_threads(4), 2);
-        assert_eq!(resolve_threads(12), 6);
-        assert_eq!(resolve_threads(28), 10);
-        assert_eq!(resolve_threads(64), 10);
+        assert_eq!(threads_for_cpus(1), 2);
+        assert_eq!(threads_for_cpus(4), 2);
+        assert_eq!(threads_for_cpus(12), 6);
+        assert_eq!(threads_for_cpus(28), 10);
+        assert_eq!(threads_for_cpus(64), 10);
     }
 }
